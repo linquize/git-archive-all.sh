@@ -206,15 +206,20 @@ elif [ `git config -l | grep -q '^core\.bare=false'; echo $?` -ne 0 ]; then
     exit
 fi
 
+FORMATSEP=$FORMAT
+if [ $SEPARATE -eq 0 ] && [ $FORMAT == "tar.gz" ]; then
+    FORMATSEP=tar
+fi
+
 # Create the superproject's git-archive
 if [ $VERBOSE -eq 1 ]; then
     echo -n "creating superproject archive..."
 fi
-git archive --format=$FORMAT --prefix="$PREFIX" $TREEISH > $TMPDIR/$(basename "$(pwd)").$FORMAT
+git archive --format=$FORMATSEP --prefix="$PREFIX" $TREEISH > $TMPDIR/$(basename "$(pwd)").$FORMATSEP
 if [ $VERBOSE -eq 1 ]; then
     echo "done"
 fi
-echo $TMPDIR/$(basename "$(pwd)").$FORMAT >| $TMPFILE # clobber on purpose
+echo $TMPDIR/$(basename "$(pwd)").$FORMATSEP >| $TMPFILE # clobber on purpose
 superfile=`head -n 1 $TMPFILE`
 
 if [ $VERBOSE -eq 1 ]; then
@@ -241,12 +246,12 @@ fi
 while read path; do
     TREEISH=$(git submodule | grep "^ .*${path%/} " | cut -d ' ' -f 2) # git submodule does not list trailing slashes in $path
     cd "$path"
-    git archive --format=$FORMAT --prefix="${PREFIX}$path" ${TREEISH:-HEAD} > "$TMPDIR"/"$(echo "$path" | sed -e 's/\//./g')"$FORMAT
+    git archive --format=$FORMATSEP --prefix="${PREFIX}$path" ${TREEISH:-HEAD} > "$TMPDIR"/"$(echo "$path" | sed -e 's/\//./g')"$FORMATSEP
     if [ $FORMAT == 'zip' ]; then
         # delete the empty directory entry; zipped submodules won't unzip if we don't do this
         zip -d "$(tail -n 1 $TMPFILE)" "${PREFIX}${path%/}" >/dev/null # remove trailing '/'
     fi
-    echo "$TMPDIR"/"$(echo "$path" | sed -e 's/\//./g')"$FORMAT >> $TMPFILE
+    echo "$TMPDIR"/"$(echo "$path" | sed -e 's/\//./g')"$FORMATSEP >> $TMPFILE
     cd "$OLD_PWD"
 done < $TOARCHIVE
 if [ $VERBOSE -eq 1 ]; then
@@ -262,6 +267,12 @@ if [ $SEPARATE -eq 0 -o "-" == $OUT_FILE ]; then
         sed -e '1d' $TMPFILE | while read file; do
             $TARCMD --concatenate -f "$superfile" "$file" && rm -f "$file"
         done
+    elif [ $FORMAT == 'tar.gz' ]; then
+        sed -e '1d' $TMPFILE | while read file; do
+            $TARCMD --concatenate -f "$superfile" "$file" && rm -f "$file"
+        done
+        gzip "$superfile"
+        superfile=$superfile.gz
     elif [ $FORMAT == 'zip' ]; then
         sed -e '1d' $TMPFILE | while read file; do
             # zip incorrectly stores the full path, so cd and then grow
